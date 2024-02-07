@@ -13,13 +13,11 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.location.LocationManager;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.util.Log;
-import android.view.View;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -53,7 +51,6 @@ public class MapActivity extends AppCompatActivity {
     private final Handler handler = new Handler();
     private MapView map;
     private MyLocationNewOverlay myLocationOverlay;
-    private LocationManager locationManager;
     private SQLiteDatabase database;
     private final String DB_NAME = "kebab.db";
     private final String TABLE_MARKERS = "Markers";
@@ -61,36 +58,35 @@ public class MapActivity extends AppCompatActivity {
     private final String COLUMN_Y = "y";
     private static final int REQUEST_LOCATION_PERMISSION = 1;
     private static final float PROXIMITY_THRESHOLD = 50;
+    private boolean isSoundPlaying = false;
     private MediaPlayer mediaPlayer;
 
     @SuppressLint("Range")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Ustawienie layoutu dla aktywności.
         setContentView(R.layout.activity_map);
 
+        // Inicjalizacja komponentów UI, sensorów i bazy danych.
         map = findViewById(R.id.map);
-
         initializeLocationOverlay();
         initializeMap();
         holeDetection();
         initializeDatabase();
         loadMarkers();
 
+        // Ustawienie przycisków do centrowania mapy i powrotu.
         FloatingActionButton fabCenterMap = findViewById(R.id.fab_center_map);
-        fabCenterMap.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                centerMapOnMyLocation();
-            }
-        });
-        FloatingActionButton fab = findViewById(R.id.fab);
-        fab.setOnClickListener(view -> finish());
+        fabCenterMap.setOnClickListener(view -> centerMapOnMyLocation());
+        FloatingActionButton fabGoBack = findViewById(R.id.fab_go_back);
+        fabGoBack.setOnClickListener(view -> finish());
 
-        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        // Sprawdzenie i ewentualne żądanie uprawnień do lokalizacji.
         checkAndRequestLocationPermission();
     }
 
+    // Metoda do sprawdzania i żądania uprawnienia do lokalizacji.
     private void checkAndRequestLocationPermission() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -100,6 +96,7 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Callback po otrzymaniu wyniku żądania uprawnienia.
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -111,12 +108,14 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Inicjalizacja warstwy lokalizacji na mapie.
     private void initializeLocationOverlay() {
         myLocationOverlay = new MyLocationNewOverlay(new GpsMyLocationProvider(this), map);
         myLocationOverlay.enableMyLocation();
         myLocationOverlay.enableFollowLocation();
         map.getOverlays().add(myLocationOverlay);
 
+        // Automatyczne centrowanie mapy na aktualnej lokalizacji użytkownika.
         myLocationOverlay.runOnFirstFix(new Runnable() {
             @Override
             public void run() {
@@ -135,81 +134,14 @@ public class MapActivity extends AppCompatActivity {
         });
     }
 
+    // Metoda do centrowania mapy na lokalizacji użytkownika.
     private void centerMapOnMyLocation() {
         if (myLocationOverlay != null && myLocationOverlay.getMyLocation() != null) {
             map.getController().animateTo(myLocationOverlay.getMyLocation());
         }
     }
 
-    private void holeDetection(){
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        if(sensorManager != null){
-            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        }
-
-        sensorEventListener = new SensorEventListener() {
-            @Override
-            public void onSensorChanged(SensorEvent sensorEvent) {
-                float[] acceleration = sensorEvent.values;
-                float y = acceleration[1];
-
-                if (lastY == 0) {
-                    lastY = y;
-                    return;
-                }
-
-                if (isJump(y, lastY) && !isJumping) {
-                    isJumping = true;
-                    handler.postDelayed(() -> isJumping = false, 1000);
-                    // Pokaż okno dialogowe
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            showHoleDetectedDialog();
-                            initializeDatabase();
-                            loadMarkers();
-                        }
-                    });
-                }
-                lastY = y;
-            }
-
-            @Override
-            public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-            }
-        };
-    }
-
-    private boolean isJump(float currentY, float lastY) {
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
-        float threshold = sharedPreferences.getInt("hole_detection_threshold", 3);
-        return Math.abs(currentY - lastY) > threshold;
-    }
-
-    private void showHoleDetectedDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Hole Detected!");
-        builder.setMessage("Would you like to add a hole marker at this location?");
-
-        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                addHoleMarker();
-            }
-        });
-
-        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                dialog.dismiss();
-            }
-        });
-
-        AlertDialog dialog = builder.create();
-        dialog.show();
-    }
-
+    // Inicjalizacja mapy z ustawieniami domyślnymi.
     private void initializeMap() {
         Context ctx = getApplicationContext();
         Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx));
@@ -225,6 +157,7 @@ public class MapActivity extends AppCompatActivity {
         mapController.setCenter(startPoint);
     }
 
+    // Inicjalizacja bazy danych SQLite.
     private void initializeDatabase() {
         try {
             database = openOrCreateDatabase(DB_NAME, MODE_PRIVATE, null);
@@ -234,6 +167,83 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Wykrywanie "skoku" jako wskazania na dziurę na drodze przy pomocy akcelerometru.
+    private void holeDetection(){
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        if(sensorManager != null){
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        }
+
+        // Listener zmian wartości z akcelerometru.
+        sensorEventListener = new SensorEventListener() {
+            @Override
+            public void onSensorChanged(SensorEvent sensorEvent) {
+                float[] acceleration = sensorEvent.values;
+                float y = acceleration[1]; // Odczyt wartości przyspieszenia w osi Y.
+
+                // Sprawdzenie, czy nastąpił "skok".
+                if (lastY == 0) {
+                    lastY = y;
+                    return;
+                }
+
+                if (isJump(y, lastY) && !isJumping) {
+                    isJumping = true;
+                    // Opóźnienie resetu stanu skoku.
+                    handler.postDelayed(() -> isJumping = false, 1000);
+                    // Wyświetlenie dialogu z pytaniem o dodanie markera dziury.
+                    // Pokaż okno dialogowe
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            showHoleDetectedDialog();
+                            initializeDatabase();
+                            loadMarkers();
+                        }
+                    });
+                }
+                lastY = y; // Aktualizacja ostatniej wartości przyspieszenia w osi Y.
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int accuracy) {
+                // Metoda wywoływana, gdy zmienia się dokładność sensora (nieużywana w tym kodzie).
+            }
+        };
+    }
+
+    // Sprawdzenie, czy nastąpił "skok".
+    private boolean isJump(float currentY, float lastY) {
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        float threshold = sharedPreferences.getInt("hole_detection_threshold", 3);
+        return Math.abs(currentY - lastY) > threshold;
+    }
+
+    // Wyświetlenie dialogu po wykryciu dziury.
+    private void showHoleDetectedDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Hole Detected!");
+        builder.setMessage("Would you like to add a hole marker at this location?");
+
+        // Obsługa przycisków dialogu.
+        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                addHoleMarker();
+            }
+        });
+        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+            }
+        });
+
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    // Wczytywanie markerów z bazy danych i umieszczanie ich na mapie.
     private void loadMarkers() {
         Cursor cursor = database.rawQuery("SELECT * FROM " + TABLE_MARKERS, null);
         if (cursor != null && cursor.moveToFirst()) {
@@ -250,12 +260,14 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Dodanie markera na mapie na podstawie współrzędnych.
     private void loadMarker(double x, double y) {
         Marker marker = new Marker(map);
         marker.setPosition(new GeoPoint(x, y));
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
         marker.setTitle("Hole");
 
+        // Ustawienie zachowania przy kliknięciu na marker.
         marker.setOnMarkerClickListener((marker1, mapView) -> {
             confirmAndRemoveMarker(marker1, x, y);
             return true;
@@ -264,21 +276,37 @@ public class MapActivity extends AppCompatActivity {
         map.getOverlays().add(marker);
     }
 
+    // Wyświetlenie dialogu potwierdzającego chęć usunięcia markera.
     private void confirmAndRemoveMarker(Marker marker, double x, double y) {
-        new AlertDialog.Builder(this)
-                .setTitle("Remove Marker")
-                .setMessage("Do you want to remove this marker?")
-                .setPositiveButton("Yes", (dialog, which) -> removeMarker(marker, x, y))
-                .setNegativeButton("No", null)
-                .show();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                builder.setTitle("Remove Marker");
+                builder.setMessage("Do you want to remove this marker?");
+
+                builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        removeMarker(marker, x, y);
+                    }
+                });
+                builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.dismiss();
+                    }
+                });
+
+                AlertDialog dialog = builder.create();
+                dialog.show();;
     }
 
+    // Usunięcie markera z mapy i bazy danych.
     private void removeMarker(Marker marker, double x, double y) {
         map.getOverlays().remove(marker);
         map.invalidate();
         removeMarkerFromDatabase(x, y);
     }
 
+    // Usunięcie markera z bazy danych.
     private void removeMarkerFromDatabase(double x, double y) {
         try {
             int deletedRows = database.delete(TABLE_MARKERS, COLUMN_X + "= ? AND " + COLUMN_Y + " = ?", new String[]{String.valueOf(x), String.valueOf(y)});
@@ -292,6 +320,7 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Zaokrąglenie wartości do określonej liczby miejsc po przecinku.
     private double roundValue(double value, int places) {
         if (places < 0) throw new IllegalArgumentException();
 
@@ -300,27 +329,17 @@ public class MapActivity extends AppCompatActivity {
         return bd.doubleValue();
     }
 
-
+    // Dodanie markera dziury na mapie i zapisanie go w bazie danych.
     private void addHoleMarker() {
         if (myLocationOverlay.getMyLocation() != null) {
             GeoPoint currentLocation = myLocationOverlay.getMyLocation();
             double latitude = roundValue(currentLocation.getLatitude(), 6);
             double longitude = roundValue(currentLocation.getLongitude(), 6);
             addMarker(latitude, longitude);
-            saveMarkerToDatabase(latitude, longitude);
         }
     }
 
-    private void saveMarkerToDatabase(double x, double y) {
-        ContentValues values = new ContentValues();
-        values.put(COLUMN_X, x);
-        values.put(COLUMN_Y, y);
-        try {
-            database.insertOrThrow(TABLE_MARKERS, null, values);
-        } catch (SQLiteException e) {
-        }
-    }
-
+    // Dodanie markera na mapie i zapisanie go w bazie danych.
     private void addMarker(double x, double y) {
         ContentValues values = new ContentValues();
         values.put(COLUMN_X, x);
@@ -329,6 +348,7 @@ public class MapActivity extends AppCompatActivity {
         loadMarker(x, y);
     }
 
+    // Pobranie markerów z bazy danych.
     private List<Marker> getMarkersFromDatabase() {
         List<Marker> markers = new ArrayList<>();
         try {
@@ -354,6 +374,7 @@ public class MapActivity extends AppCompatActivity {
         return markers;
     }
 
+    // Sprawdzenie bliskości do dziur na podstawie lokalizacji użytkownika.
     private void checkProximityToHoles(GeoPoint currentLocation) {
         List<Marker> markersList = getMarkersFromDatabase();
         for (Marker marker : markersList) {
@@ -365,12 +386,12 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Wyświetlenie alertu o bliskości dziury.
     private void showProximityAlert() {
         Toast.makeText(this, "You are close to a hole. Watch out!", Toast.LENGTH_LONG).show();
     }
 
-    private boolean isSoundPlaying = false;
-
+    // Odtwarzanie dźwięku alarmu.
     private void playAlertSound() {
         try {
         if (isSoundPlaying) {
@@ -394,6 +415,7 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Runnable do cyklicznego sprawdzania bliskości dziur.
     private final Runnable proximityCheckRunnable = new Runnable() {
         @Override
         public void run() {
@@ -404,6 +426,7 @@ public class MapActivity extends AppCompatActivity {
         }
     };
 
+    // Metoda onResume rejestrująca listener sensora i uruchamiająca cykliczne sprawdzanie bliskości dziur.
     @Override
     protected void onResume() {
         super.onResume();
@@ -414,6 +437,7 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Metoda onPause zatrzymująca odtwarzanie dźwięku, cykliczne sprawdzanie i odrejestrowywanie listenera sensora.
     @Override
     protected void onPause() {
         super.onPause();
@@ -428,6 +452,7 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
+    // Metoda onDestroy zamykająca połączenie z bazą danych.
     @Override
     protected void onDestroy() {
         super.onDestroy();
